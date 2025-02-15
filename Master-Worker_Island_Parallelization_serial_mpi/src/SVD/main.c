@@ -1,18 +1,24 @@
 /*****************************************************************************
  * main.c
  *
- * Reads a CSV "svd_data.csv" (user_id, movie_id, rating),
- * builds a dense matrix A, and calls THU-numbda's partial SVD function:
+ * Reads a CSV "svd_data.csv" containing lines:
+ *     user_id,movie_id,rating
+ * already mapped so that 0 <= user_id < num_rows and 0 <= movie_id < num_cols.
  *
+ * Builds a dense matrix A (row-major) in a struct "mat" with fields (m, n, data).
+ *
+ * Then calls the function:
  *   void svds_C_dense(mat *A, mat **Uk, mat **Sk, mat **Vk, int k);
+ * as defined in THU-numbda's code (or your local "svds.c").
  *
- * Then saves the factor matrices (Uk, Sk, Vk) to a file ("svd_model.dat").
+ * Finally, saves Uk, Sk, Vk to a file "svd_model.dat" with no placeholders.
  *
- * To compile with THU-numbda's code (svds.c + deps):
- *   mpicc main.c svds.c LOBPCG_C.c ... -o svd_hpc -lm -lblas -llapack
+ * Compile (example):
+ *   mpicc main.c svds.c -o svd_mpi -lm -lblas -llapack
+ * or include other THU-numbda files (LOBPCG_C.c, etc.) as needed.
  *
- * Run:
- *   mpirun -np 1 ./svd_hpc svd_data.csv NUM_ROWS NUM_COLS K
+ * Run (serial MPI):
+ *   mpirun -np 1 ./svd_mpi svd_data.csv NUM_ROWS NUM_COLS K
  *****************************************************************************/
 
  #include <mpi.h>
@@ -20,31 +26,39 @@
  #include <stdlib.h>
  #include <string.h>
  
- /* Suppose THU-numbda's "svds.h" defines:
-    - typedef struct mat { int m, n, nnz; doublecomplex *val; int *rowptr, *colind; int format;} mat;
-    - doublecomplex (with fields .r, .i)
-    - void svds_C_dense(mat *A, mat **Uk, mat **Sk, mat **Vk, int k);
+ /* We assume your 'svds.h' declares something like:
+      typedef struct {
+        int m;
+        int n;
+        double *data;  // row-major
+      } mat;
+ 
+    and the SVD function:
+      void svds_C_dense(mat *A, mat **Uk, mat **Sk, mat **Vk, int k);
  */
- #include "svds.h"  // Adjust path if needed
+ #include "svds.h"
+ 
  
  /*****************************************************************************
-  * fill_dense_matrix_from_csv:
-  *   Reads lines "user_id,movie_id,rating" from CSV
-  *   and stores them into A->val in row-major order:
-  *       A->val[row*A->n + col].r = rating;
-  *       A->val[row*A->n + col].i = 0.0;
+  * fill_matrix_from_csv:
+  *   Reads lines "user_id,movie_id,rating" from 'filename',
+  *   and places each rating into A->data[row*A->n + col].
+  *
+  *   We skip a possible header line. 
+  *
+  * Return 0 on success, nonzero on error.
   *****************************************************************************/
- static int fill_dense_matrix_from_csv(const char *filename, mat *A,
-                                       int num_rows, int num_cols)
+ static int fill_matrix_from_csv(const char *filename, mat *A,
+                                 int num_rows, int num_cols)
  {
-     if (!A || A->format != 0 || !A->val) {
-         fprintf(stderr, "[fill_dense_matrix_from_csv] Invalid input matrix.\n");
+     if (!A || !A->data) {
+         fprintf(stderr, "[fill_matrix_from_csv] Invalid mat.\n");
          return 1;
      }
  
      FILE *fp = fopen(filename, "r");
      if (!fp) {
-         fprintf(stderr, "Error: cannot open CSV file %s\n", filename);
+         fprintf(stderr, "Error: cannot open %s\n", filename);
          return 2;
      }
  
@@ -60,10 +74,10 @@
          int uid, mid;
          double rating;
          if (sscanf(line, "%d,%d,%lf", &uid, &mid, &rating) == 3) {
+             // Check bounds
              if (uid >= 0 && uid < num_rows && mid >= 0 && mid < num_cols) {
                  int idx = uid * A->n + mid;
-                 A->val[idx].r = rating;
-                 A->val[idx].i = 0.0;
+                 A->data[idx] = rating;
              }
          }
      }
@@ -73,49 +87,51 @@
  
  /*****************************************************************************
   * save_matrices:
-  *   Writes Uk, Sk, Vk to a binary file ("svd_model.dat") in this format:
-  *     [int Uk_rows] [int Uk_cols]
-  *     [Uk_rows*Uk_cols pairs of (double real, double imag)]
-  *     [int Sk_rows] [int Sk_cols]
-  *     [Sk_rows*Sk_cols pairs (real, imag)]
-  *     [int Vk_rows] [int Vk_cols]
-  *     [Vk_rows*Vk_cols pairs (real, imag)]
+  *   Writes Uk, Sk, Vk to a binary file "svd_model.dat" with the format:
   *
-  *   You can later read and reconstruct these matrices as needed.
+  *   [Uk->m] [Uk->n]
+  *   (Uk->m * Uk->n) doubles
+  *   [Sk->m] [Sk->n]
+  *   (Sk->m * Sk->n) doubles
+  *   [Vk->m] [Vk->n]
+  *   (Vk->m * Vk->n) doubles
+  *
+  * Return: none; prints a message on success.
   *****************************************************************************/
  static void save_matrices(const mat *Uk, const mat *Sk, const mat *Vk)
  {
      FILE *fp = fopen("svd_model.dat", "wb");
      if (!fp) {
-         fprintf(stderr, "Warning: Unable to open svd_model.dat for writing.\n");
+         fprintf(stderr, "[save_matrices] Could not open svd_model.dat for writing.\n");
          return;
      }
  
-     // Helper lambda for writing one matrix
-     auto write_matrix = [&](const mat *M) {
-         if (!M || !M->val) {
-             // Indicate 0,0 for dimensions
+     // Helper to write a single matrix
+     // If M is NULL, we store zero for dimensions
+     // otherwise, we store M->m, M->n, then M->data in row-major order
+     // (M->m * M->n) doubles
+     int m_val = 0, n_val = 0;
+     const double *pdata = NULL;
+ 
+     // Writes out the matrix in a <rows> <cols> <data...> binary format
+     auto write_mat = [&](const mat *M) {
+         if (!M || !M->data) {
              int zero = 0;
              fwrite(&zero, sizeof(int), 1, fp);
              fwrite(&zero, sizeof(int), 1, fp);
              return;
          }
-         fwrite(&(M->m), sizeof(int), 1, fp);
-         fwrite(&(M->n), sizeof(int), 1, fp);
-         for (int i = 0; i < M->m * M->n; i++) {
-             double r = M->val[i].r;
-             double im= M->val[i].i;
-             fwrite(&r, sizeof(double), 1, fp);
-             fwrite(&im, sizeof(double), 1, fp);
-         }
+         fwrite(&M->m, sizeof(int), 1, fp);
+         fwrite(&M->n, sizeof(int), 1, fp);
+         fwrite(M->data, sizeof(double), M->m * M->n, fp);
      };
  
-     write_matrix(Uk);
-     write_matrix(Sk);
-     write_matrix(Vk);
+     write_mat(Uk);
+     write_mat(Sk);
+     write_mat(Vk);
  
      fclose(fp);
-     printf("[save_matrices] Saved Uk, Sk, Vk to svd_model.dat.\n");
+     printf("[save_matrices] Matrices saved to svd_model.dat\n");
  }
  
  int main(int argc, char *argv[])
@@ -128,14 +144,14 @@
  
      if (argc < 5) {
          if (rank == 0) {
-             fprintf(stderr, "Usage: %s <csv_file> <num_rows> <num_cols> <K>\n", argv[0]);
+             fprintf(stderr, "Usage: %s <csv> <num_rows> <num_cols> <K>\n", argv[0]);
          }
          MPI_Finalize();
          return 1;
      }
  
      if (rank == 0) {
-         printf("Number of processes: %d (serial HPC approach, only rank 0 does SVD)\n", size);
+         printf("MPI size = %d (serial: only rank 0 does the SVD)\n", size);
      }
  
      if (rank == 0) {
@@ -144,57 +160,50 @@
          int num_cols = atoi(argv[3]);
          int K        = atoi(argv[4]);
  
-         printf("Rank 0: CSV=%s, matrix=%dx%d, partial-SVD rank=%d\n",
+         printf("Rank 0: reading %s, building %dx%d matrix, requesting top-%d SVD.\n",
                 csv_file, num_rows, num_cols, K);
  
-         // 1) Allocate a dense mat
+         // 1) Allocate the mat
          mat A;
          A.m = num_rows;
          A.n = num_cols;
-         A.nnz = A.m * A.n;  // for a dense matrix
-         A.format = 0;       // 0 => dense
-         A.rowptr = NULL;
-         A.colind = NULL;
- 
-         A.val = (doublecomplex*) calloc(A.nnz, sizeof(doublecomplex));
-         if (!A.val) {
-             fprintf(stderr, "Error: allocation failed for matrix A.\n");
+         A.data = (double*) calloc((size_t)A.m * A.n, sizeof(double));
+         if (!A.data) {
+             fprintf(stderr, "Allocation failed for matrix A.\n");
              MPI_Abort(MPI_COMM_WORLD, 1);
          }
  
          // 2) Fill from CSV
-         int err = fill_dense_matrix_from_csv(csv_file, &A, num_rows, num_cols);
+         int err = fill_matrix_from_csv(csv_file, &A, A.m, A.n);
          if (err) {
-             fprintf(stderr, "Error: fill_dense_matrix_from_csv failed (%d).\n", err);
-             free(A.val);
+             fprintf(stderr, "Error reading CSV (code=%d)\n", err);
+             free(A.data);
              MPI_Abort(MPI_COMM_WORLD, 1);
          }
  
-         // 3) Prepare pointers for SVD output
+         // 3) Prepare placeholders for output
          mat *Uk = NULL, *Sk = NULL, *Vk = NULL;
  
-         // 4) Call THU-numbda’s partial SVD
+         // 4) Call partial SVD (implemented in svds.c or other THU-numbda files)
          svds_C_dense(&A, &Uk, &Sk, &Vk, K);
  
-         // 5) Save results to a file
-         //    If svds_C_dense allocated Uk->val, Sk->val, Vk->val, 
-         //    we can store them in "svd_model.dat".
+         // 5) Save the results (Uk, Sk, Vk) => "svd_model.dat"
          save_matrices(Uk, Sk, Vk);
  
-         printf("SVD model training completed; results written to svd_model.dat.\n");
+         printf("SVD completed. The factor matrices have been written to svd_model.dat\n");
  
          // 6) Cleanup
-         free(A.val);  // free original matrix
+         free(A.data);
          if (Uk) {
-             if (Uk->val) free(Uk->val);
+             if (Uk->data) free(Uk->data);
              free(Uk);
          }
          if (Sk) {
-             if (Sk->val) free(Sk->val);
+             if (Sk->data) free(Sk->data);
              free(Sk);
          }
          if (Vk) {
-             if (Vk->val) free(Vk->val);
+             if (Vk->data) free(Vk->data);
              free(Vk);
          }
      }
