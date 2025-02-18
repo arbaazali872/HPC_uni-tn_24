@@ -1,0 +1,6 @@
+Rank 0: reading 'mapped_merged_data_2M.csv', building 104644x108 matrix, K=100
+CSV reading & matrix fill took 1.055025 sec.
+SVD computation took 150.720192 sec.
+Saving Uk, Sk, Vk took 0.534078 sec.
+Total program time: 152.327265 sec.
+svds_C_dense call completed successfully!
