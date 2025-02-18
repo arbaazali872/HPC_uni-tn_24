@@ -1,0 +1,4 @@
+Building matrix from 'mapped_merged_data_16M.csv' with dimensions 139723x906, computing rank-100 truncated SVD.
+CSV reading & matrix filling took 300.215855 sec.
+Building matrix from 'mapped_merged_data_16M.csv' with dimensions 139723x906, computing rank-100 truncated SVD.
+CSV reading & matrix filling took 361.115716 sec.
