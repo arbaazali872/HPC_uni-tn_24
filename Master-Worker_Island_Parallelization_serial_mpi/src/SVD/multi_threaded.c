@@ -30,6 +30,20 @@
  #include "svds.h"  // This header includes the definition of mat and the svds_C_dense function
  
  /*****************************************************************************
+  * log_message:
+  *   Logs messages into a log file "svd_log.txt".
+  *****************************************************************************/
+ static void log_message(const char *message) {
+     FILE *logfile = fopen("svd_multi_threaded_log16M_2C.txt", "a");
+     if (!logfile) {
+         fprintf(stderr, "Error opening log file.\n");
+         return;
+     }
+     fprintf(logfile, "%s\n", message);
+     fclose(logfile);
+ }
+ 
+ /*****************************************************************************
   * fill_matrix_from_csv:
   *   Reads lines "user_id,movie_id,rating" from 'filename',
   *   and places each rating in row-major order:
@@ -37,31 +51,30 @@
   *   Skips one header line if present.
   * Returns 0 on success, nonzero on error.
   *****************************************************************************/
- static int fill_matrix_from_csv(const char *filename, mat *A, int num_rows, int num_cols)
- {
+ static int fill_matrix_from_csv(const char *filename, mat *A, int num_rows, int num_cols) {
      if (!A || !A->d) {
-         fprintf(stderr, "[fill_matrix_from_csv] Error: invalid 'mat' pointer.\n");
+         log_message("[fill_matrix_from_csv] Error: invalid 'mat' pointer.");
          return 1;
      }
      // Check dimensions.
      if (A->nrows != num_rows || A->ncols != num_cols) {
-         fprintf(stderr, "[fill_matrix_from_csv] Mismatch: A->nrows/ncols vs. function args.\n");
+         log_message("[fill_matrix_from_csv] Mismatch: A->nrows/ncols vs. function args.");
          return 2;
      }
-  
+ 
      FILE *fp = fopen(filename, "r");
      if (!fp) {
-         fprintf(stderr, "Error: cannot open CSV file '%s'\n", filename);
+         log_message("[fill_matrix_from_csv] Error: cannot open CSV file.");
          return 3;
      }
-  
+ 
      // Skip header line (if any).
      char line[256];
      if (fgets(line, sizeof(line), fp) == NULL) {
          fclose(fp);
          return 4; // Possibly empty file.
      }
-  
+ 
      // Read each subsequent line.
      while (fgets(line, sizeof(line), fp)) {
          int uid, mid;
@@ -101,14 +114,14 @@
  static void save_matrices(const mat *Uk, const mat *Sk, const mat *Vk) {
      FILE *fp = fopen("svd_mpi_results.dat", "wb");
      if (!fp) {
-         fprintf(stderr, "[save_matrices] Could not open svd_mpi_results.dat for writing.\n");
+         log_message("[save_matrices] Could not open svd_mpi_results.dat for writing.");
          return;
      }
      save_one_matrix(Uk, fp);
      save_one_matrix(Sk, fp);
      save_one_matrix(Vk, fp);
      fclose(fp);
-     printf("[save_matrices] Saved Uk, Sk, Vk to 'svd_mpi_results.dat'.\n");
+     log_message("[save_matrices] Saved Uk, Sk, Vk to 'svd_mpi_results.dat'.");
  }
  
  /*****************************************************************************
@@ -119,7 +132,7 @@
      double total_time_start = omp_get_wtime();
  
      if (argc < 5) {
-         fprintf(stderr, "Usage: %s <csv_file> <num_rows> <num_cols> <K>\n", argv[0]);
+         log_message("Usage: <csv_file> <num_rows> <num_cols> <K>");
          return 1;
      }
  
@@ -128,7 +141,9 @@
      int num_cols = atoi(argv[3]);
      int K = atoi(argv[4]);
  
-     printf("Building matrix from '%s' with dimensions %dx%d, computing rank-%d truncated SVD.\n", csv_file, num_rows, num_cols, K);
+     char log_msg[256];
+     snprintf(log_msg, sizeof(log_msg), "Building matrix from '%s' with dimensions %dx%d, computing rank-%d truncated SVD.", csv_file, num_rows, num_cols, K);
+     log_message(log_msg);
  
      // 1) Allocate the dense matrix A.
      mat A;
@@ -136,7 +151,7 @@
      A.ncols = num_cols;
      A.d = (double*) calloc((size_t)(A.nrows * A.ncols), sizeof(double));
      if (!A.d) {
-         fprintf(stderr, "Error: allocation failed for A->d\n");
+         log_message("Error: allocation failed for A->d");
          return 1;
      }
  
@@ -145,11 +160,13 @@
      int err = fill_matrix_from_csv(csv_file, &A, num_rows, num_cols);
      t_csv = omp_get_wtime() - t_csv;
      if (err) {
-         fprintf(stderr, "Error reading CSV (code=%d)\n", err);
+         snprintf(log_msg, sizeof(log_msg), "Error reading CSV (code=%d)", err);
+         log_message(log_msg);
          free(A.d);
          return 1;
      }
-     printf("CSV reading & matrix filling took %.6f sec.\n", t_csv);
+     snprintf(log_msg, sizeof(log_msg), "CSV reading & matrix filling took %.6f sec.", t_csv);
+     log_message(log_msg);
  
      // 3) Prepare placeholders for the SVD outputs.
      mat *Uk = NULL, *Sk = NULL, *Vk = NULL;
@@ -158,13 +175,15 @@
      double t_svd = omp_get_wtime();
      svds_C_dense(&A, &Uk, &Sk, &Vk, K); // This function is internally parallelized.
      t_svd = omp_get_wtime() - t_svd;
-     printf("SVD computation took %.6f sec.\n", t_svd);
+     snprintf(log_msg, sizeof(log_msg), "SVD computation took %.6f sec.", t_svd);
+     log_message(log_msg);
  
      // 5) Save the SVD results to a binary file.
      double t_save = omp_get_wtime();
      save_matrices(Uk, Sk, Vk);
      t_save = omp_get_wtime() - t_save;
-     printf("Saving Uk, Sk, Vk took %.6f sec.\n", t_save);
+     snprintf(log_msg, sizeof(log_msg), "Saving Uk, Sk, Vk took %.6f sec.", t_save);
+     log_message(log_msg);
  
      // 6) Free memory.
      free(A.d);
@@ -182,7 +201,8 @@
      }
  
      double total_time = omp_get_wtime() - total_time_start;
-     printf("Total program time: %.6f sec.\n", total_time);
+     snprintf(log_msg, sizeof(log_msg), "Total program time: %.6f sec.", total_time);
+     log_message(log_msg);
  
      return 0;
  }

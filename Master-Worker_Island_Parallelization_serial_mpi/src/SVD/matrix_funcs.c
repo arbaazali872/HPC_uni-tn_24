@@ -341,38 +341,84 @@ void csr_matrix_vector_mult(mat_csr *A, vec *x, vec *y) {
     }
 }
 
+// void csr_matrix_transpose_vector_mult(mat_csr *A, vec *x, vec *y) {
+//     int i;
+//     int j;
+
+//     double ylocal[y->nrows];
+//     #pragma omp parallel shared(x,A,ylocal) private(i,j) 
+//     {
+//         #pragma omp for
+//         for(i=0;i<A->ncols;i++)
+//         {
+//             y->d[i] = 0;
+//             ylocal[i] = 0;
+//         }
+        
+        
+//         #pragma omp for reduction(+:ylocal)
+//         for(i=0;i<A->nrows;i++)
+//         {
+//             for(j=A->pointerB[i];j<A->pointerE[i];j++)
+//             {
+//                 int t = A->cols[j-1]-1;
+//                 ylocal[t] = ylocal[t] + x->d[i]*A->values[j-1];
+//             }
+        
+//         }
+//     }
+
+//     for(i=0;i<A->ncols;i++)
+//     {
+//         y->d[i] = ylocal[i];
+//     }
+// }
+
 void csr_matrix_transpose_vector_mult(mat_csr *A, vec *x, vec *y) {
-    int i;
-    int j;
+    int i, j;
 
     double ylocal[y->nrows];
-    #pragma omp parallel shared(x,A,ylocal) private(i,j) 
+    
+    // Initialize the result vector and ylocal array
+    #pragma omp parallel for shared(y, ylocal)
+    for (i = 0; i < A->ncols; i++) {
+        y->d[i] = 0;
+        ylocal[i] = 0;
+    }
+
+    #pragma omp parallel shared(x, A, ylocal) private(i, j)
     {
-        #pragma omp for
-        for(i=0;i<A->ncols;i++)
-        {
-            y->d[i] = 0;
-            ylocal[i] = 0;
+        // Private copy of ylocal for each thread
+        double ylocal_private[y->nrows];
+        for (i = 0; i < A->nrows; i++) {
+            ylocal_private[i] = 0;
         }
-        
-        
-        #pragma omp for reduction(+:ylocal)
-        for(i=0;i<A->nrows;i++)
-        {
-            for(j=A->pointerB[i];j<A->pointerE[i];j++)
-            {
-                int t = A->cols[j-1]-1;
-                ylocal[t] = ylocal[t] + x->d[i]*A->values[j-1];
+
+        // Compute local contributions
+        #pragma omp for
+        for (i = 0; i < A->nrows; i++) {
+            for (j = A->pointerB[i]; j < A->pointerE[i]; j++) {
+                int t = A->cols[j - 1] - 1;
+                ylocal_private[t] += x->d[i] * A->values[j - 1];
             }
-        
+        }
+
+        // Manually reduce the results
+        #pragma omp critical
+        {
+            for (i = 0; i < A->ncols; i++) {
+                ylocal[i] += ylocal_private[i];
+            }
         }
     }
 
-    for(i=0;i<A->ncols;i++)
-    {
+    // Copy ylocal back to the output vector y
+    #pragma omp parallel for
+    for (i = 0; i < A->ncols; i++) {
         y->d[i] = ylocal[i];
     }
 }
+
 
 void csr_matrix_print(mat_csr *M) {
     int i;
