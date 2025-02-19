@@ -1,6 +1,6 @@
 #!/bin/bash
-#PBS -l select=1:ncpus=8:mem=16gb
-#PBS -l walltime=0:20:00
+#PBS -l select=1:ncpus=2:mem=16gb
+#PBS -l walltime=0:40:00
 #PBS -q short_cpuQ
 #PBS -N svd_shared_job
 
@@ -13,7 +13,7 @@ module load lapack-3.8.0
 module load OpenBLAS-0.3.7
 module load mpich-3.2 
 # Set the number of OpenMP threads to use
-export OMP_NUM_THREADS=8
+export OMP_NUM_THREADS=2 
 echo "Using OMP_NUM_THREADS=$OMP_NUM_THREADS"
 
 # Move to the working directory (where you submitted the job)
@@ -21,7 +21,7 @@ cd $PBS_O_WORKDIR
 
 # Compile the code using a shared-memory (OpenMP) compiler
 # Note: You might switch from mpicc to gcc if you are not using MPI calls anymore.
-gcc -fopenmp -o svd_shared multi_threaded.c svds.c matrix_funcs.c \
+gcc -fopenmp -o svd_shared_16M_2 multi_threaded.c svds.c matrix_funcs.c \
   -I/apps/OpenBLAS-0.3.7/include \
   -I/apps/lapack-3.8.0/include \
   -L/apps/OpenBLAS-0.3.7/lib \
@@ -29,4 +29,4 @@ gcc -fopenmp -o svd_shared multi_threaded.c svds.c matrix_funcs.c \
   -lopenblas -llapacke -lm
 
 # Run the executable (no need for mpirun if using pure OpenMP)
-./svd_shared mapped_data_merged_data_24M.csv 142255 1321 100
+./svd_shared_16M_2 mapped_merged_data_16M.csv 139723 906 100
