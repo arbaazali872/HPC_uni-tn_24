@@ -1,0 +1,6 @@
+Building matrix from 'mapped_merged_data_2M.csv' with dimensions 104644x108, computing rank-100 truncated SVD.
+CSV reading & matrix filling took 1.845665 sec.
+SVD computation took 153.918950 sec.
+[save_matrices] Saved Uk, Sk, Vk to 'svd_mpi_results.dat'.
+Saving Uk, Sk, Vk took 0.295253 sec.
+Total program time: 156.239929 sec.

@@ -27,7 +27,7 @@
  #include <stdlib.h>
  #include <string.h>
  #include <omp.h>
- #include "svds.h"  // This header includes the definition of mat and the svds_C_dense function
+ #include "../common/svds.h"  // This header includes the definition of mat and the svds_C_dense function
  
  /*****************************************************************************
   * log_message:

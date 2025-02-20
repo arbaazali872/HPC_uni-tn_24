@@ -40,7 +40,7 @@
     and:
       void svds_C_dense(mat *A, mat **Uk, mat **Sk, mat **Vk, int k);
  */
- #include "svds.h"
+ #include "../common/svds.h"
  
  /*****************************************************************************
   * fill_matrix_from_csv:

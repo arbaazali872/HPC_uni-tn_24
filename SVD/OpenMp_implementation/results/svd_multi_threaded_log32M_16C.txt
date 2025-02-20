@@ -1,0 +1,16 @@
+Building matrix from 'mapped_merged_data_32M.csv' with dimensions 142255x1321, computing rank-100 truncated SVD.
+Building matrix from 'mapped_merged_data_32M.csv' with dimensions 142255x1321, computing rank-100 truncated SVD.
+CSV reading & matrix filling took 13.735545 sec.
+SVD computation took 306.342154 sec.
+[save_matrices] Saved Uk, Sk, Vk to 'svd_mpi_results.dat'.
+Saving Uk, Sk, Vk took 0.276505 sec.
+Total program time: 320.587312 sec.
+CSV reading & matrix filling took 478.890780 sec.
+Building matrix from 'mapped_merged_data_32M.csv' with dimensions 142255x1321, computing rank-100 truncated SVD.
+CSV reading & matrix filling took 14.207251 sec.
+Building matrix from 'mapped_merged_data_32M.csv' with dimensions 142255x1321, computing rank-100 truncated SVD.
+CSV reading & matrix filling took 11.670972 sec.
+SVD computation took 321.689480 sec.
+[save_matrices] Saved Uk, Sk, Vk to 'svd_mpi_results.dat'.
+Saving Uk, Sk, Vk took 0.274415 sec.
+Total program time: 333.837820 sec.
