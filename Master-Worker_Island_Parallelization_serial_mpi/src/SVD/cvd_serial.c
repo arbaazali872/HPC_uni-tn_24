@@ -7,7 +7,7 @@
  *   - The merged data is in "merged_data.txt" (tab-separated, with header).
  *   - The file contains the columns: Cust_Id, Movie_Id, Rating, Genres, Title.
  *   - An SVD function is available from svds-C with the prototype:
- *         int svd(double *A, int m, int n, int k, double *U, double *S, double *V);
+ *         int svds_C_dense(double *A, int m, int n, int k, double *U, double *S, double *V);
  *
  * Compile with:
  *    mpicc -o serial_svd_recommender serial_svd_recommender.c -lm -lsvds
@@ -19,7 +19,7 @@
  #include <mpi.h>
  #include <time.h>
  #include <math.h>
- #include "svds.h"   // Header for the SVD library (assumed to provide svd())
+ #include "svds.h"   // Header for the SVD library (assumed to provide svds_C_dense())
  
  #define MAX_GENRE_LEN 50
  #define MAX_TITLE_LEN 100
@@ -90,8 +90,9 @@
                  A[i * num_movies + j] = rating_matrix[i][j];
              }
          }
-         // Call the SVD routine from the svds-C library.
-         if (svd(A, num_users, num_movies, k, U_flat, S, V_flat) != 0) {
+ 
+         // Call the SVD routine from the svds-C library (svds_C_dense).
+         if (svds_C_dense(A, num_users, num_movies, k, U_flat, S, V_flat) != 0) {
              fprintf(stderr, "Error: SVD computation failed.\n");
              MPI_Abort(MPI_COMM_WORLD, -1);
          }
@@ -103,12 +104,9 @@
          reconstruct_ratings(U_flat, S, V_flat, num_users, num_movies, k, predicted_ratings);
  
          /* --- Step 5: Recommend Movies for a Selected User --- */
-         // For example, choose a random user (or a specific user, e.g., 712664)
          srand(time(NULL));
          int user_id = (rand() % num_users) + 1;  // assume 1-indexed user IDs
          printf("\nRecommendations for User %d:\n", user_id);
-         // (In a full system, we would filter out movies the user already rated,
-         //  group by genre, etc. Here, we simply print the predicted rating for the first 10 movies.)
          for (int j = 0; j < 10; j++) {
              double pred = predicted_ratings[(user_id - 1) * num_movies + j];
              printf("Movie %d predicted rating: %.2f\n", j+1, pred);
@@ -143,30 +141,24 @@
  
      char line[512];
      int count = 0;
-     // Skip header line.
      if (fgets(line, sizeof(line), fp) == NULL) {
          fclose(fp);
          return -1;
      }
-     // First pass: count lines.
      while (fgets(line, sizeof(line), fp) != NULL) {
          count++;
      }
  
-     // Allocate records array.
      *records = malloc(count * sizeof(RatingRecord));
      if (!(*records)) {
          fclose(fp);
          return -1;
      }
  
-     // Second pass: read data.
      rewind(fp);
-     // Skip header.
      fgets(line, sizeof(line), fp);
      int idx = 0;
      while (fgets(line, sizeof(line), fp) != NULL && idx < count) {
-         // Expected format: Cust_Id\tMovie_Id\tRating\tGenres\tTitle
          char *token = strtok(line, "\t\n");
          if (token != NULL)
              (*records)[idx].cust_id = atoi(token);
@@ -193,7 +185,6 @@
  }
  
  // build_rating_matrix: Fills the provided 2D array "matrix" with ratings.
- // Assumes user IDs and movie IDs are 1-indexed.
  void build_rating_matrix(RatingRecord *records, int num_records,
                           double **matrix, int num_users, int num_movies) {
      for (int i = 0; i < num_records; i++) {
@@ -205,35 +196,10 @@
      }
  }
  
- // compute_svd: Converts the 2D matrix to a contiguous array and calls the SVD routine.
- // U_flat: (num_users x k), S: (k), V_flat: (num_movies x k)
- // Here we assume that the svd() function from svds-C is available.
- void compute_svd(double **matrix, int num_users, int num_movies, int k,
-                  double *U_flat, double *S, double *V_flat) {
-     // The matrix A must be contiguous in row-major order.
-     double *A = malloc(num_users * num_movies * sizeof(double));
-     for (int i = 0; i < num_users; i++) {
-         for (int j = 0; j < num_movies; j++) {
-             A[i * num_movies + j] = matrix[i][j];
-         }
-     }
-     // Call the SVD routine.
-     if (svd(A, num_users, num_movies, k, U_flat, S, V_flat) != 0) {
-         fprintf(stderr, "Error in SVD computation.\n");
-         free(A);
-         exit(-1);
-     }
-     free(A);
- }
- 
  // reconstruct_ratings: Computes predicted = U * diag(S) * V^T.
- // U_flat is of size (num_users x k), V_flat is (num_movies x k), S is length k.
- // The output "predicted" is a contiguous array of size (num_users x num_movies).
  void reconstruct_ratings(double *U_flat, double *S, double *V_flat,
                           int num_users, int num_movies, int k,
                           double *predicted) {
-     // For each user i and movie j, compute:
-     // predicted[i, j] = sum_{r=0}^{k-1} U_flat[i*k + r] * S[r] * V_flat[j*k + r]
      for (int i = 0; i < num_users; i++) {
          for (int j = 0; j < num_movies; j++) {
              double sum = 0.0;

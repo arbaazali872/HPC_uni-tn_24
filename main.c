@@ -1,19 +1,22 @@
 #include <stdio.h>
 #include "preprocessing.h"
-        //   preprocessing
 
 int main() {
-    Rating ratings[MAX_ROWS];
-    int count = 0;
+    size_t num_rows;
+    Rating *ratings = load_data("combined_data_1.txt", &num_rows);
 
-    if (load_data("combined_data_1.txt", ratings, &count) != 0) {
-        return 1;
+    if (!ratings) {
+        printf("Error: No data was loaded. Exiting.\n");
+        return 1;  
     }
 
-    printf("First few rows of the data:\n");
-    for (int i = 0; i < (count < 5 ? count : 5); i++) {
-        printf("Customer ID: %d, Rating: %d\n", ratings[i].customer_id, ratings[i].rating);
+    printf("Successfully loaded %zu rows.\n", num_rows);
+
+    // Print first few rows for verification
+    for (size_t i = 0; i < (num_rows < 5 ? num_rows : 5); i++) {
+        printf("Customer ID: %d, Rating: %.1f\n", ratings[i].customer_id, ratings[i].rating);
     }
 
+    free(ratings);
     return 0;
 }

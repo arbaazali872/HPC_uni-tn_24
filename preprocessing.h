@@ -4,16 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define MAX_LINE_LENGTH 256
-#define MAX_ROWS 1000  // Adjust this depending on your data size
-
-// Struct to hold the customer ID and rating data
+// Struct for storing customer ratings
 typedef struct {
     int customer_id;
-    int rating;
+    double rating;  // Changed to double for float64 equivalent
 } Rating;
 
-// Function prototype for loading data
-int load_data(const char *filename, Rating ratings[], int *count);
+// Function prototype to load data dynamically
+Rating* load_data(const char *filename, size_t *num_rows);
 
 #endif // PREPROCESSING_H
